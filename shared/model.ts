@@ -15,7 +15,8 @@ export type Category = (typeof CATEGORIES)[number];
 /** Содержимое записи — то, что вводит пользователь. */
 export interface EntryFields {
   achievement: string;
-  category: Category | null;
+  /** Ноль, одна или несколько категорий, в порядке списка CATEGORIES. */
+  categories: Category[];
   obstacle: string | null;
   how: string | null;
   lesson: string | null;
@@ -30,10 +31,10 @@ export interface Entry extends EntryFields {
 
 export const TEXT_FIELDS = ['achievement', 'obstacle', 'how', 'lesson', 'goal_tomorrow'] as const;
 
-export const FIELD_LABELS: Record<(typeof TEXT_FIELDS)[number] | 'category' | 'date', string> = {
+export const FIELD_LABELS: Record<(typeof TEXT_FIELDS)[number] | 'categories' | 'date', string> = {
   date: 'Дата',
   achievement: 'Достижение дня',
-  category: 'Категория',
+  categories: 'Категории',
   obstacle: 'Преодолённое препятствие',
   how: 'Как я это сделал(а)',
   lesson: 'Что я узнал(а)',
@@ -45,7 +46,7 @@ export const MIN_PASSWORD_LENGTH = 8;
 
 export interface ExportFile {
   app: 'achievement-diary';
-  version: 1;
+  version: 2;
   exported_at: string;
   entries: Entry[];
 }
@@ -71,6 +72,11 @@ export interface ImportResult {
 }
 
 export type Resolution = 'keep' | 'replace';
+
+/** Убирает повторы и неизвестные значения, приводит к порядку списка CATEGORIES. */
+export function normalizeCategories(list: readonly unknown[]): Category[] {
+  return CATEGORIES.filter((c) => list.includes(c));
+}
 
 export function isValidDate(s: unknown): s is string {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;

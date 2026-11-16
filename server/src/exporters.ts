@@ -3,7 +3,7 @@ import { type Entry, type ExportFile, FIELD_LABELS, TEXT_FIELDS, formatDateLong 
 export function toJson(entries: Entry[]): string {
   const file: ExportFile = {
     app: 'achievement-diary',
-    version: 1,
+    version: 2,
     exported_at: new Date().toISOString(),
     entries,
   };
@@ -15,7 +15,7 @@ export function toMarkdown(entries: Entry[]): string {
   const out: string[] = ['# Дневник достижений', ''];
   for (const e of entries) {
     out.push(`## ${formatDateLong(e.date)}`, '');
-    if (e.category) out.push(`**${FIELD_LABELS.category}:** ${e.category}`, '');
+    if (e.categories.length) out.push(`**${FIELD_LABELS.categories}:** ${e.categories.join(', ')}`, '');
     for (const key of TEXT_FIELDS) {
       const value = e[key];
       if (!value) continue;
@@ -26,7 +26,7 @@ export function toMarkdown(entries: Entry[]): string {
 }
 
 const CSV_COLUMNS = [
-  'date', 'achievement', 'category', 'obstacle', 'how', 'lesson', 'goal_tomorrow', 'created_at', 'updated_at',
+  'date', 'achievement', 'categories', 'obstacle', 'how', 'lesson', 'goal_tomorrow', 'created_at', 'updated_at',
 ] as const;
 
 function csvCell(v: string | null): string {
@@ -37,6 +37,8 @@ function csvCell(v: string | null): string {
 /** CSV по RFC 4180, с BOM — чтобы Excel правильно открыл кириллицу. */
 export function toCsv(entries: Entry[]): string {
   const rows = [CSV_COLUMNS.join(',')];
-  for (const e of entries) rows.push(CSV_COLUMNS.map((c) => csvCell(e[c])).join(','));
+  for (const e of entries) {
+    rows.push(CSV_COLUMNS.map((c) => csvCell(c === 'categories' ? e.categories.join('; ') || null : e[c])).join(','));
+  }
   return '﻿' + rows.join('\r\n') + '\r\n';
 }

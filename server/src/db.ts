@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS entries (
   date          TEXT NOT NULL UNIQUE
                 CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
   achievement   TEXT NOT NULL CHECK (length(trim(achievement)) > 0),
-  category      TEXT,
+  categories    TEXT NOT NULL DEFAULT '[]',  -- JSON-массив названий
   obstacle      TEXT,
   how           TEXT,
   lesson        TEXT,
@@ -36,11 +36,25 @@ export function openDb(dbPath: string): DB {
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.exec(SCHEMA);
+  migrate(db);
   // Поиск без учёта регистра для кириллицы.
   db.function('norm', { deterministic: true }, (s: unknown) =>
     s === null || s === undefined ? null : normalizeText(String(s)),
   );
   return db;
+}
+
+/** Версия 1 хранила одну категорию в колонке category; теперь — список в categories. */
+function migrate(db: DB): void {
+  const columns = (db.pragma('table_info(entries)') as { name: string }[]).map((c) => c.name);
+  if (!columns.includes('category')) return;
+  db.transaction(() => {
+    if (!columns.includes('categories')) {
+      db.exec("ALTER TABLE entries ADD COLUMN categories TEXT NOT NULL DEFAULT '[]'");
+    }
+    db.exec("UPDATE entries SET categories = json_array(category) WHERE category IS NOT NULL AND categories = '[]'");
+    db.exec('ALTER TABLE entries DROP COLUMN category');
+  })();
 }
 
 export function getSetting(db: DB, key: string): string | undefined {

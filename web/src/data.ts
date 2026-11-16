@@ -160,9 +160,10 @@ export interface ListQuery {
 }
 
 function matches(e: Entry, words: string[], category: string): boolean {
-  if (category && e.category !== category) return false;
+  const own = e.categories ?? [];
+  if (category && !(own as string[]).includes(category)) return false;
   if (!words.length) return true;
-  const hay = normalizeText([...TEXT_FIELDS.map((k) => e[k] ?? ''), e.category ?? ''].join('\n'));
+  const hay = normalizeText([...TEXT_FIELDS.map((k) => e[k] ?? ''), ...own].join('\n'));
   return words.every((w) => hay.includes(w));
 }
 

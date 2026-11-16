@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import type { Entry } from '../../../shared/model';
 import { randomEntry } from '../data';
 import { formatDateLong } from '../dates';
-import { CategoryTag, EntryBody, Notice } from '../ui';
+import { CategoryTags, EntryBody, Notice } from '../ui';
 
 export function Remember() {
   const [entry, setEntry] = useState<Entry | null | undefined>(undefined);
@@ -48,7 +48,7 @@ export function Remember() {
           <article class="sheet remember-card" key={entry.date}>
             <p class="remember-date">
               <time dateTime={entry.date}>{formatDateLong(entry.date)}</time>
-              <CategoryTag category={entry.category} />
+              <CategoryTags categories={entry.categories} />
             </p>
             <EntryBody entry={entry} />
           </article>

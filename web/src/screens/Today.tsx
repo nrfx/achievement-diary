@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CATEGORIES, FIELD_LABELS, type Entry } from '../../../shared/model';
+import { CATEGORIES, type Category, FIELD_LABELS, type Entry, normalizeCategories } from '../../../shared/model';
 import { OfflineError, getEntry, removeEntry, saveEntry } from '../data';
 import { formatDateLong, isValidDate, todayLocal } from '../dates';
 import { type FormState, clearDraft, formFromEntry, loadDraft, sameForm, saveDraft } from '../drafts';
@@ -61,6 +61,11 @@ export function Today({ date: routeDate }: { date: string | null }) {
     // Черновик пишется сразу при каждом изменении: текст переживёт закрытие вкладки.
     if (sameForm(next, baseline.current)) clearDraft(date);
     else saveDraft(date, next);
+  };
+
+  const toggleCategory = (c: Category) => {
+    const on = form.categories.includes(c);
+    update({ categories: normalizeCategories(on ? form.categories.filter((x) => x !== c) : [...form.categories, c]) });
   };
 
   const discardDraft = () => {
@@ -139,12 +144,14 @@ export function Today({ date: routeDate }: { date: string | null }) {
         {text('achievement', 3, true)}
 
         <div class="field">
-          <span class="label" id="category-label">{FIELD_LABELS.category}</span>
+          <span class="label" id="category-label">
+            {FIELD_LABELS.categories} <span class="label-hint">можно несколько</span>
+          </span>
           <div class="chips" role="group" aria-labelledby="category-label">
             {CATEGORIES.map((c) => (
-              <button key={c} type="button" class={`chip${form.category === c ? ' is-on' : ''}`}
-                aria-pressed={form.category === c} disabled={loading}
-                onClick={() => update({ category: form.category === c ? null : c })}>
+              <button key={c} type="button" class={`chip${form.categories.includes(c) ? ' is-on' : ''}`}
+                aria-pressed={form.categories.includes(c)} disabled={loading}
+                onClick={() => toggleCategory(c)}>
                 {c}
               </button>
             ))}

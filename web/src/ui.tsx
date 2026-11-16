@@ -35,8 +35,13 @@ export function AutoTextarea(props: {
   );
 }
 
-export function CategoryTag({ category }: { category: string | null }) {
-  return category ? <span class="tag">{category}</span> : null;
+export function CategoryTags({ categories }: { categories: readonly string[] | undefined }) {
+  if (!categories?.length) return null;
+  return (
+    <span class="tags">
+      {categories.map((c) => <span key={c} class="tag">{c}</span>)}
+    </span>
+  );
 }
 
 /** Запись целиком — как страница бумажного дневника. */

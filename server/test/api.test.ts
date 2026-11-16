@@ -41,7 +41,7 @@ async function login(app: FastifyInstance, password = PASSWORD) {
 
 const full = {
   achievement: 'Закончила Отчёт, "сложный"; с запятыми,\nи переносом',
-  category: 'Карьера',
+  categories: ['Карьера', 'Обучение'],
   obstacle: 'Усталость',
   how: 'Разбила на шаги',
   lesson: 'Маленькие шаги работают',
@@ -118,7 +118,7 @@ describe('API', () => {
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({
       date: '2026-03-01', achievement: 'Пробежка 5 км',
-      category: null, obstacle: null, how: null, lesson: null, goal_tomorrow: null,
+      categories: [], obstacle: null, how: null, lesson: null, goal_tomorrow: null,
     });
 
     const updated = await put('2026-03-01', full);
@@ -136,21 +136,26 @@ describe('API', () => {
   it('проверяет входные данные', async () => {
     expect((await put('2026-03-01', { achievement: '   ' })).statusCode).toBe(400);
     expect((await put('2026-03-01', { obstacle: 'x' })).statusCode).toBe(400);
-    expect((await put('2026-03-01', { achievement: 'x', category: 'Прочее' })).statusCode).toBe(400);
+    expect((await put('2026-03-01', { achievement: 'x', categories: ['Прочее'] })).statusCode).toBe(400);
+    expect((await put('2026-03-01', { achievement: 'x', categories: 'Карьера' })).statusCode).toBe(400);
     expect((await put('2026-02-30', { achievement: 'x' })).statusCode).toBe(400);
     expect((await put('1-2-3', { achievement: 'x' })).statusCode).toBe(400);
   });
 
   it('ищет без учёта регистра (кириллица), фильтрует и листает', async () => {
-    await put('2026-01-01', { achievement: 'Первая ТРЕНИРОВКА', category: 'Здоровье' });
-    await put('2026-01-02', { achievement: 'Сдал экзамен', category: 'Обучение', lesson: 'Ёжик помог' });
-    await put('2026-01-03', { achievement: 'Тренировка в зале', category: 'Здоровье' });
+    await put('2026-01-01', { achievement: 'Первая ТРЕНИРОВКА', categories: ['Здоровье'] });
+    await put('2026-01-02', { achievement: 'Сдал экзамен', categories: ['Обучение', 'Здоровье', 'Обучение'], lesson: 'Ёжик помог' });
+    await put('2026-01-03', { achievement: 'Тренировка в зале', categories: ['Здоровье'] });
 
     const dates = async (url: string) => ((await get(url)).json().items as Entry[]).map((e) => e.date);
     expect(await dates('/api/entries')).toEqual(['2026-01-03', '2026-01-02', '2026-01-01']);
     expect(await dates(`/api/entries?q=${encodeURIComponent('тренировка')}`)).toEqual(['2026-01-03', '2026-01-01']);
     expect(await dates(`/api/entries?q=${encodeURIComponent('ежик')}`)).toEqual(['2026-01-02']);
     expect(await dates(`/api/entries?category=${encodeURIComponent('Обучение')}`)).toEqual(['2026-01-02']);
+    // запись с несколькими категориями находится по каждой из них
+    expect(await dates(`/api/entries?category=${encodeURIComponent('Здоровье')}`)).toEqual(['2026-01-03', '2026-01-02', '2026-01-01']);
+    // повторы убираются, порядок — как в списке категорий
+    expect((await get('/api/entries/2026-01-02')).json().categories).toEqual(['Здоровье', 'Обучение']);
     expect(await dates('/api/entries?from=2026-01-02&to=2026-01-02')).toEqual(['2026-01-02']);
 
     const page = (await get('/api/entries?limit=2&offset=2')).json();
@@ -222,6 +227,19 @@ describe('API', () => {
     expect((await get('/api/entries/2026-01-02')).json().achievement).toBe('И эта из файла');
   });
 
+  it('импортирует экспорт старого формата с одной категорией', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/import', headers,
+      payload: { entries: [
+        { date: '2026-01-01', achievement: 'Старая', category: 'Финансы' },
+        { date: '2026-01-02', achievement: 'Без категории', category: null },
+      ] },
+    });
+    expect(res.json()).toMatchObject({ imported: 2 });
+    expect((await get('/api/entries/2026-01-01')).json().categories).toEqual(['Финансы']);
+    expect((await get('/api/entries/2026-01-02')).json().categories).toEqual([]);
+  });
+
   it('отклоняет повреждённый файл импорта целиком', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/import', headers,
@@ -243,9 +261,11 @@ describe('API', () => {
 
     const csv = (await get('/api/export?format=csv')).body;
     const lines = csv.replace('﻿', '').split('\r\n');
-    expect(lines[0]).toBe('date,achievement,category,obstacle,how,lesson,goal_tomorrow,created_at,updated_at');
+    expect(lines[0]).toBe('date,achievement,categories,obstacle,how,lesson,goal_tomorrow,created_at,updated_at');
     expect(lines[1]!.startsWith('2026-01-01,Раньше,,,,,,')).toBe(true);
     expect(csv).toContain('"Закончила Отчёт, ""сложный""; с запятыми,\nи переносом"');
+    expect(csv).toContain(',Карьера; Обучение,Усталость,');
+    expect(md.body).toContain('**Категории:** Карьера, Обучение');
     expect((await get('/api/export?format=xml')).statusCode).toBe(400);
   });
 
@@ -260,6 +280,28 @@ describe('API', () => {
     expect((await app.inject({ method: 'GET', url: '/api/session', headers: other })).statusCode).toBe(401);
     expect((await login(app, PASSWORD)).res.statusCode).toBe(401);
     expect((await login(app, 'new password 123')).res.statusCode).toBe(200);
+  });
+});
+
+describe('Миграция', () => {
+  it('переносит одну категорию из старой схемы в список', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diary-mig-'));
+    const file = path.join(dir, 'diary.sqlite');
+    const old = new Database(file);
+    old.exec(`CREATE TABLE entries (id INTEGER PRIMARY KEY, date TEXT NOT NULL UNIQUE, achievement TEXT NOT NULL,
+      category TEXT, obstacle TEXT, how TEXT, lesson TEXT, goal_tomorrow TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      INSERT INTO entries (date, achievement, category, created_at, updated_at) VALUES
+        ('2026-01-01', 'A', 'Карьера', 'x', 'x'), ('2026-01-02', 'B', NULL, 'x', 'x');`);
+    old.close();
+    for (let i = 0; i < 2; i++) { // повторное открытие ничего не ломает
+      const db = openDb(file);
+      expect(db.prepare('SELECT date, categories FROM entries ORDER BY date').all()).toEqual([
+        { date: '2026-01-01', categories: '["Карьера"]' },
+        { date: '2026-01-02', categories: '[]' },
+      ]);
+      db.close();
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 

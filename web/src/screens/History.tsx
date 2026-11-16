@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { CATEGORIES, type Entry } from '../../../shared/model';
 import { listDates, listEntries } from '../data';
 import { MONTHS, WEEKDAYS_SHORT, formatDateLong, monthGrid, todayLocal } from '../dates';
-import { CategoryTag, Notice } from '../ui';
+import { CategoryTags, Notice } from '../ui';
 
 const PAGE = 20;
 
@@ -97,7 +97,7 @@ function Feed() {
             <a class="feed-item" href={`#/entry/${e.date}`}>
               <span class="feed-meta">
                 <time dateTime={e.date}>{formatDateLong(e.date)}</time>
-                <CategoryTag category={e.category} />
+                <CategoryTags categories={e.categories} />
               </span>
               <span class="feed-text">{e.achievement}</span>
             </a>

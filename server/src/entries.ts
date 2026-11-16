@@ -10,14 +10,38 @@ import {
   MAX_FIELD_LENGTH,
   TEXT_FIELDS,
   isValidDate,
+  normalizeCategories,
   normalizeText,
 } from '../../shared/model.js';
 import type { DB } from './db.js';
 
-const COLUMNS = 'date, achievement, category, obstacle, how, lesson, goal_tomorrow, created_at, updated_at';
-const SEARCH_COLUMNS = ['achievement', 'obstacle', 'how', 'lesson', 'goal_tomorrow', 'category'];
+const COLUMNS = 'date, achievement, categories, obstacle, how, lesson, goal_tomorrow, created_at, updated_at';
+const SEARCH_COLUMNS = ['achievement', 'obstacle', 'how', 'lesson', 'goal_tomorrow', 'categories'];
 
 export class ValidationError extends Error {}
+
+type Row = Omit<Entry, 'categories'> & { categories: string };
+
+function fromRow(row: Row): Entry;
+function fromRow(row: Row | undefined): Entry | undefined;
+function fromRow(row: Row | undefined): Entry | undefined {
+  if (!row) return undefined;
+  let list: unknown = [];
+  try {
+    list = JSON.parse(row.categories);
+  } catch { /* повреждённое значение читаем как «без категорий» */ }
+  return { ...row, categories: normalizeCategories(Array.isArray(list) ? list : []) };
+}
+
+/** Принимает `categories: [...]`, а также старый формат `category: "..."` (экспорт версии 1). */
+function parseCategories(b: Record<string, unknown>): Category[] {
+  const raw = b.categories ?? (b.category === undefined || b.category === null || b.category === '' ? [] : [b.category]);
+  if (!Array.isArray(raw)) throw new ValidationError('Поле categories должно быть списком.');
+  for (const c of raw) {
+    if (!(CATEGORIES as readonly unknown[]).includes(c)) throw new ValidationError(`Неизвестная категория: ${String(c)}.`);
+  }
+  return normalizeCategories(raw);
+}
 
 function optionalText(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
@@ -34,13 +58,9 @@ export function parseFields(body: unknown): EntryFields {
   const b = body as Record<string, unknown>;
   const achievement = optionalText(b.achievement, 'achievement');
   if (!achievement) throw new ValidationError('Достижение дня — обязательное поле.');
-  const category = optionalText(b.category, 'category');
-  if (category !== null && !(CATEGORIES as readonly string[]).includes(category)) {
-    throw new ValidationError(`Неизвестная категория: ${category}.`);
-  }
   return {
     achievement,
-    category: category as Category | null,
+    categories: parseCategories(b),
     obstacle: optionalText(b.obstacle, 'obstacle'),
     how: optionalText(b.how, 'how'),
     lesson: optionalText(b.lesson, 'lesson'),
@@ -49,7 +69,7 @@ export function parseFields(body: unknown): EntryFields {
 }
 
 export function getEntry(db: DB, date: string): Entry | undefined {
-  return db.prepare(`SELECT ${COLUMNS} FROM entries WHERE date = ?`).get(date) as Entry | undefined;
+  return fromRow(db.prepare(`SELECT ${COLUMNS} FROM entries WHERE date = ?`).get(date) as Row | undefined);
 }
 
 export interface Timestamps {
@@ -68,18 +88,18 @@ export function upsertEntry(
   const existing = getEntry(db, date);
   if (existing) {
     db.prepare(
-      `UPDATE entries SET achievement = ?, category = ?, obstacle = ?, how = ?, lesson = ?,
+      `UPDATE entries SET achievement = ?, categories = ?, obstacle = ?, how = ?, lesson = ?,
          goal_tomorrow = ?, created_at = ?, updated_at = ? WHERE date = ?`,
     ).run(
-      f.achievement, f.category, f.obstacle, f.how, f.lesson, f.goal_tomorrow,
+      f.achievement, JSON.stringify(f.categories), f.obstacle, f.how, f.lesson, f.goal_tomorrow,
       ts.created_at ?? existing.created_at, ts.updated_at ?? now, date,
     );
   } else {
     db.prepare(
-      `INSERT INTO entries (date, achievement, category, obstacle, how, lesson, goal_tomorrow, created_at, updated_at)
+      `INSERT INTO entries (date, achievement, categories, obstacle, how, lesson, goal_tomorrow, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
-      date, f.achievement, f.category, f.obstacle, f.how, f.lesson, f.goal_tomorrow,
+      date, f.achievement, JSON.stringify(f.categories), f.obstacle, f.how, f.lesson, f.goal_tomorrow,
       ts.created_at ?? now, ts.updated_at ?? now,
     );
   }
@@ -107,33 +127,33 @@ export function listEntries(db: DB, p: ListParams): { items: Entry[]; total: num
     where.push('(' + SEARCH_COLUMNS.map((c) => `instr(norm(${c}), ?) > 0`).join(' OR ') + ')');
     for (let i = 0; i < SEARCH_COLUMNS.length; i++) args.push(word);
   }
-  if (p.category) { where.push('category = ?'); args.push(p.category); }
+  if (p.category) {
+    where.push('EXISTS (SELECT 1 FROM json_each(entries.categories) WHERE value = ?)');
+    args.push(p.category);
+  }
   if (p.from) { where.push('date >= ?'); args.push(p.from); }
   if (p.to) { where.push('date <= ?'); args.push(p.to); }
   const cond = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const total = (db.prepare(`SELECT count(*) AS n FROM entries ${cond}`).get(...args) as { n: number }).n;
   const items = db
     .prepare(`SELECT ${COLUMNS} FROM entries ${cond} ORDER BY date DESC LIMIT ? OFFSET ?`)
-    .all(...args, p.limit, p.offset) as Entry[];
-  return { items, total };
+    .all(...args, p.limit, p.offset) as Row[];
+  return { items: items.map((r) => fromRow(r)), total };
 }
 
 export function allEntries(db: DB): Entry[] {
-  return db.prepare(`SELECT ${COLUMNS} FROM entries ORDER BY date ASC`).all() as Entry[];
+  return (db.prepare(`SELECT ${COLUMNS} FROM entries ORDER BY date ASC`).all() as Row[]).map((r) => fromRow(r));
 }
 
-export function listDates(db: DB): { date: string; category: string | null }[] {
-  return db.prepare('SELECT date, category FROM entries ORDER BY date ASC').all() as {
-    date: string;
-    category: string | null;
-  }[];
+export function listDates(db: DB): { date: string }[] {
+  return db.prepare('SELECT date FROM entries ORDER BY date ASC').all() as { date: string }[];
 }
 
 export function randomEntry(db: DB, exclude?: string): Entry | undefined {
   const pick = (cond: string, ...args: unknown[]) =>
-    db.prepare(`SELECT ${COLUMNS} FROM entries ${cond} ORDER BY random() LIMIT 1`).get(...args) as
-      | Entry
-      | undefined;
+    fromRow(
+      db.prepare(`SELECT ${COLUMNS} FROM entries ${cond} ORDER BY random() LIMIT 1`).get(...args) as Row | undefined,
+    );
   return (exclude ? pick('WHERE date != ?', exclude) : undefined) ?? pick('');
 }
 
@@ -174,7 +194,7 @@ export function parseImportEntries(raw: unknown): Entry[] {
 }
 
 function sameContent(a: EntryFields, b: EntryFields): boolean {
-  return a.category === b.category && TEXT_FIELDS.every((k) => (a[k] ?? null) === (b[k] ?? null));
+  return a.categories.join('|') === b.categories.join('|') && TEXT_FIELDS.every((k) => (a[k] ?? null) === (b[k] ?? null));
 }
 
 export function previewImport(db: DB, incoming: Entry[]): ImportPreview {

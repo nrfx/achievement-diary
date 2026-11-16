@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import type { Entry } from '../../../shared/model';
 import { getEntry } from '../data';
 import { formatDateLong } from '../dates';
-import { CategoryTag, EntryBody } from '../ui';
+import { CategoryTags, EntryBody } from '../ui';
 
 export function EntryView({ date }: { date: string }) {
   const [entry, setEntry] = useState<Entry | null | undefined>(undefined);
@@ -27,7 +27,7 @@ export function EntryView({ date }: { date: string }) {
       {entry && (
         <>
           <article class="sheet">
-            <CategoryTag category={entry.category} />
+            <CategoryTags categories={entry.categories} />
             <EntryBody entry={entry} />
           </article>
           <div class="actions">
