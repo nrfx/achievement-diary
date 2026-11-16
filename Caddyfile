@@ -1,0 +1,6 @@
+# HTTPS-сертификат Caddy получает и продлевает сам (Let's Encrypt).
+# Домен берётся из переменной DIARY_DOMAIN (.env).
+{$DIARY_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

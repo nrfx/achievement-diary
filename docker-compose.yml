@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Нужен только при первом запуске: пароль сохраняется в БД как хеш argon2.
+      DIARY_PASSWORD: ${DIARY_PASSWORD:-}
+      # Сброс забытого пароля: поставьте 1 вместе с новым DIARY_PASSWORD, запустите, затем уберите.
+      DIARY_PASSWORD_RESET: ${DIARY_PASSWORD_RESET:-}
+    volumes:
+      - ./data:/data          # diary.sqlite
+      - ./backups:/backups    # ежедневные копии, последние 14
+    # Порт наружу не публикуется: приложение доступно только через Caddy.
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DIARY_DOMAIN: ${DIARY_DOMAIN:?Укажите DIARY_DOMAIN в .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # сертификаты Let's Encrypt
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
